@@ -14,6 +14,7 @@ use std::time::Duration;
 /// | [`namespace`](OxiaClientBuilder::namespace) | `default` |
 /// | [`identity`](OxiaClientBuilder::identity) | random UUID |
 /// | [`batch_max_size`](OxiaClientBuilder::batch_max_size) | 128 KiB |
+/// | [`max_decoding_message_size`](OxiaClientBuilder::max_decoding_message_size) | 4 MiB |
 /// | [`max_requests_per_batch`](OxiaClientBuilder::max_requests_per_batch) | 1000 |
 /// | [`max_write_batches_in_flight`](OxiaClientBuilder::max_write_batches_in_flight) | 4 |
 /// | [`max_read_batches_in_flight`](OxiaClientBuilder::max_read_batches_in_flight) | 4 |
@@ -42,6 +43,7 @@ pub struct OxiaClientBuilder {
     namespace: Option<String>,
     identity: Option<String>,
     batch_max_size: Option<u32>,
+    max_decoding_message_size: Option<usize>,
     max_requests_per_batch: Option<u32>,
     max_write_batches_in_flight: Option<u32>,
     max_read_batches_in_flight: Option<u32>,
@@ -114,6 +116,13 @@ impl OxiaClientBuilder {
     /// The maximum byte size of a batch (default: 128KiB).
     pub fn batch_max_size(mut self, batch_max_size: u32) -> Self {
         self.batch_max_size = Some(batch_max_size);
+        self
+    }
+
+    /// The maximum decoded gRPC response size in bytes (default: 4MiB).
+    /// Applies to each response message, including streamed read batches.
+    pub fn max_decoding_message_size(mut self, max: usize) -> Self {
+        self.max_decoding_message_size = Some(max);
         self
     }
 
@@ -195,6 +204,9 @@ impl OxiaClientBuilder {
         }
         if let Some(batch_max_size) = self.batch_max_size {
             options.batch_max_size = batch_max_size;
+        }
+        if let Some(max) = self.max_decoding_message_size {
+            options.max_decoding_message_size = max;
         }
         if let Some(max_requests_per_batch) = self.max_requests_per_batch {
             options.max_requests_per_batch = max_requests_per_batch;
@@ -293,5 +305,33 @@ mod tests {
     fn default_keep_alive_tracks_the_default_session_timeout() {
         let options = OxiaClientBuilder::new().assemble_options();
         assert_eq!(options.session_keep_alive, options.session_timeout / 10);
+    }
+
+    #[tokio::test]
+    async fn decoding_limit_reaches_the_response_transport() {
+        let mock = crate::mock_server::MockOxia::start(Default::default()).await;
+        let error = OxiaClientBuilder::new()
+            .service_address(&mock.address)
+            .request_timeout(Duration::from_secs(1))
+            .max_decoding_message_size(1)
+            .build()
+            .await
+            .unwrap_err();
+        // Assignment stream decode failures use the existing reconnect path.
+        // A too-small limit therefore fails this finite build by its deadline.
+        assert!(matches!(error, OxiaError::Timeout));
+
+        let client = OxiaClientBuilder::new()
+            .service_address(&mock.address)
+            .request_timeout(Duration::from_secs(1))
+            .max_decoding_message_size(1024)
+            .build()
+            .await
+            .unwrap();
+        assert_eq!(
+            client.get("key").await.unwrap().value.unwrap().as_ref(),
+            b"mock-value"
+        );
+        client.close().await.unwrap();
     }
 }

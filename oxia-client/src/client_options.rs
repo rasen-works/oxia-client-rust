@@ -1,6 +1,8 @@
 use std::time::Duration;
 use uuid::Uuid;
 
+pub(crate) const DEFAULT_MAX_DECODING_MESSAGE_SIZE: usize = 4 * 1024 * 1024;
+
 /// Configuration options for the Oxia client.
 #[derive(Debug, Clone)]
 pub struct OxiaClientOptions {
@@ -12,6 +14,8 @@ pub struct OxiaClientOptions {
     pub identity: String,
     /// Maximum batch size in bytes (default: 128KB).
     pub batch_max_size: u32,
+    /// Maximum decoded gRPC response size in bytes (default: 4MiB).
+    pub max_decoding_message_size: usize,
     /// Maximum number of requests per batch (default: 1000).
     pub max_requests_per_batch: u32,
     /// Maximum write batches in flight per shard (default: 4).
@@ -38,6 +42,7 @@ impl Default for OxiaClientOptions {
             namespace: String::from("default"),
             identity: Uuid::new_v4().to_string(),
             batch_max_size: 128 * 1024,
+            max_decoding_message_size: DEFAULT_MAX_DECODING_MESSAGE_SIZE,
             max_requests_per_batch: 1000,
             max_write_batches_in_flight: 4,
             max_read_batches_in_flight: 4,

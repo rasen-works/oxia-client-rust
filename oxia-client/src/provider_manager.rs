@@ -24,6 +24,7 @@ const KEEP_ALIVE_TIMEOUT: Duration = Duration::from_secs(3);
 pub struct ProviderManager {
     providers: Arc<DashMap<String, OnceCell<OxiaClientClient<AuthChannel>>>>,
     connect_timeout: Duration,
+    max_decoding_message_size: usize,
     auth: Option<TokenAuth>,
     #[cfg(feature = "tls")]
     tls: Option<tonic::transport::ClientTlsConfig>,
@@ -36,6 +37,7 @@ impl ProviderManager {
     ) -> Result<OxiaClientClient<AuthChannel>, OxiaError> {
         let once_cell = self.providers.entry(address.clone()).or_default();
         let connect_timeout = self.connect_timeout;
+        let max_decoding_message_size = self.max_decoding_message_size;
         let auth = self.auth.clone();
         #[cfg(feature = "tls")]
         let tls = self.tls.clone();
@@ -61,10 +63,10 @@ impl ProviderManager {
                     None => endpoint,
                 };
                 let channel = endpoint.connect().await?;
-                Ok::<OxiaClientClient<AuthChannel>, OxiaError>(OxiaClientClient::with_interceptor(
-                    channel,
-                    AuthInterceptor::new(auth),
-                ))
+                Ok::<OxiaClientClient<AuthChannel>, OxiaError>(
+                    OxiaClientClient::with_interceptor(channel, AuthInterceptor::new(auth))
+                        .max_decoding_message_size(max_decoding_message_size),
+                )
             })
             .await?
             .clone();
@@ -75,10 +77,16 @@ impl ProviderManager {
         ProviderManager {
             providers: Arc::new(DashMap::new()),
             connect_timeout,
+            max_decoding_message_size: crate::client_options::DEFAULT_MAX_DECODING_MESSAGE_SIZE,
             auth: None,
             #[cfg(feature = "tls")]
             tls: None,
         }
+    }
+
+    pub fn with_max_decoding_message_size(mut self, max: usize) -> ProviderManager {
+        self.max_decoding_message_size = max;
+        self
     }
 
     /// Authenticates every connection this manager creates with tokens from

@@ -148,7 +148,8 @@ impl OxiaClient {
         options: OxiaClientOptions,
         metrics: Metrics,
     ) -> Result<OxiaClient, OxiaError> {
-        let provider_manager = ProviderManager::new(options.request_timeout);
+        let provider_manager = ProviderManager::new(options.request_timeout)
+            .with_max_decoding_message_size(options.max_decoding_message_size);
         let provider_manager = provider_manager.with_auth(options.auth.clone());
         #[cfg(feature = "tls")]
         let provider_manager =
